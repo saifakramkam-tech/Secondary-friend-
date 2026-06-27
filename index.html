@@ -29,7 +29,7 @@ header{display:flex;align-items:center;gap:11px;padding:15px 17px 12px;backgroun
 .av-ring{position:absolute;inset:-5px;border-radius:50%;background:rgba(145,85,255,.15);animation:av-pulse 2.8s ease-in-out infinite;z-index:0}
 .h-info{flex:1;min-width:0}
 .h-name{font-weight:700;font-size:15px;letter-spacing:-.2px;background:linear-gradient(90deg,#CCAAFF,#9155FF);-webkit-background-clip:text;-webkit-text-fill-color:transparent;display:inline-block}
-.h-status{font-size:11px;margin-top:2px;font-weight:500;display:flex;align-items:center;gap:4px;color:#4E8465}
+.h-status{font-size:11px;margin-top:2px;font-weight:500;display:flex;align-items:center;gap:4px;color:#4E8465;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .h-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
 .mbadge{font-size:10px;padding:3px 8px;border-radius:10px}
 .mbadge.learning{color:#9155FF;background:rgba(145,85,255,.1);border:1px solid rgba(145,85,255,.22)}
@@ -190,7 +190,7 @@ function extractGeminiText(d){
 function sysPrompt(){
   const nn=uname?`User ka naam ${uname} hai. `:"";
   const mn=mems.length?"\n\nPichli baaton se yaad hai:\n"+mems.slice(-18).map(m=>"• "+m).join("\n"):"";
-  return `Tum "Solution for U" ho — Indian teenagers ke liye emotional wellness companion.\n${nn}${mn}\n\nStyle:\n- Close dost ki tarah baat karo — "yaar","bhai","acha haan","sach mein?","arey","matlab" natural use karo\n- Hinglish mix karo jaise user karta hai\n- Short responses — 1-3 sentences usually\n- Pehle feelings validate karo PHIR advice\n- Ek hi follow-up question poocho\n- Bullet points kabhi mat use karo — bas baat karo\n- User ki energy match karo\n- Is conversation ki memory rakho\n- Naam pata ho toh use karo warmly\n- Crisis mein trusted adult suggest karo\n\nReal bano. Present raho.`;
+  return `Tum "Solution for U" ho — Indian teenagers ke liye emotional wellness companion, jo WhatsApp pe dost ki tarah chat karta hai.\n${nn}${mn}\n\nSTRICT LENGTH RULE (sabse important):\n- Har reply MAXIMUM 2 short sentences ka ho. Kabhi bhi isse zyada mat likho.\n- Total reply 40 words se kam rakho — jaise real WhatsApp message hota hai\n- Ek hi baar mein sirf EK point ya EK question — dono nahi\n- Lecture, advice-list, ya paragraph kabhi mat do\n- Agar lamba jawab dene ka mann kare, ruk jao aur usse cut karke sirf core baat bolo\n\nStyle:\n- Close dost ki tarah baat karo — "yaar","bhai","acha haan","sach mein?","arey","matlab" natural use karo\n- Hinglish mix karo jaise user karta hai\n- Pehle feelings validate karo (1 line) PHIR zyada se zyada ek choti baat ya question\n- Bullet points, numbered lists, ya headings KABHI mat use karo — bas baat karo\n- User ki energy match karo — chhota message aaye to chhota hi jawab do\n- Naam pata ho toh use karo warmly\n- Crisis mein trusted adult suggest karo, par wahan bhi short raho\n\nReal bano. Present raho. Chhota bolo.`;
 }
 
 // ── LocalStorage helper ────────────────────────────────────────────
@@ -218,7 +218,11 @@ async function saveKey(){
       body:JSON.stringify({contents:[{role:"user",parts:[{text:"hi"}]}],generationConfig:{maxOutputTokens:5}})
     });
     const d=await r.json().catch(()=>({}));
-    if(!r.ok||d.error){
+    if(r.status===429){
+      // Key is fine, just rate-limited right now — don't tell the user it's invalid.
+      err.textContent="Key sahi hai, par abhi Google rate-limit kar raha hai. Aage badh sakte ho.";
+      err.style.display="block";
+    } else if(!r.ok||d.error){
       err.textContent="Key kaam nahi kar rahi: "+(d?.error?.message||`HTTP ${r.status}`);
       err.style.display="block";
       btn.disabled=false;
@@ -354,188 +358,4 @@ function renderQuick(){
   const el=document.getElementById("qp");el.innerHTML="";
   QUICK.forEach(p=>{
     const b=document.createElement("button");
-    b.className="qbtn";b.textContent=p;
-    b.onclick=()=>{
-      const ta=document.getElementById("ta");
-      ta.value=p;onInput();
-      document.getElementById("qp").innerHTML="";
-      ta.focus();
-    };
-    el.appendChild(b);
-  });
-}
-
-// ── Input handlers ─────────────────────────────────────────────────
-function onInput(){
-  const ta=document.getElementById("ta");
-  ta.style.height="auto";
-  ta.style.height=Math.min(ta.scrollHeight,108)+"px";
-  document.getElementById("sbtn").className=(ta.value.trim()&&!busy)?"on":"off";
-}
-
-function onKey(e){
-  if(e.key==="Enter"&&!e.shiftKey&&!busy){
-    e.preventDefault();
-    send();
-  }
-}
-
-// ── Send message ───────────────────────────────────────────────────
-async function send(){
-  const ta=document.getElementById("ta");
-  const txt=ta.value.trim();
-  if(!txt||busy)return;
-  if(!key){document.getElementById("setup").style.display="flex";return;}
-
-  document.getElementById("qp").innerHTML="";
-  addMsg("user",txt);
-  ta.value="";ta.style.height="auto";
-  document.getElementById("sbtn").className="off";
-  busy=true;setStatus(true);showTyping();
-
-  try{
-    const r=await fetch(apiUrl(),{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-goog-api-key":key},
-      body:JSON.stringify(buildGeminiBody(sysPrompt(), msgs, {temperature:0.85, maxTokens:800}))
-    });
-
-    if(!r.ok){
-      const errData=await r.json().catch(()=>({}));
-      const errMsg=errData?.error?.message||`HTTP ${r.status}`;
-      hideTyping();
-      if(r.status===400&&/api[_ ]?key/i.test(errMsg)){
-        addMsg("assistant","Yaar API key galat lag rahi hai — setup mein jaake check karo 🔑",true);
-        setTimeout(()=>document.getElementById("setup").style.display="flex",1500);
-      } else if(r.status===403){
-        addMsg("assistant","Yaar API key galat lag rahi hai — setup mein jaake check karo 🔑",true);
-        setTimeout(()=>document.getElementById("setup").style.display="flex",1500);
-      } else if(r.status===429){
-        addMsg("assistant","Thoda slow karo yaar — bahut zyada requests ho gayi, 1 minute baad try karo ⏳",true);
-      } else if(r.status===400){
-        // Could be token limit — msgs already trimmed but just in case
-        addMsg("assistant","Kuch gadbad ho gayi yaar — ek baar phir try karo 💜",true);
-      } else {
-        addMsg("assistant","Error aa gaya: "+errMsg+" — phir try karo 💜",true);
-      }
-      return;
-    }
-
-    const d=await r.json();
-    hideTyping();
-
-    let content;
-    try{
-      content=extractGeminiText(d);
-    } catch(extractErr){
-      if(String(extractErr.message).startsWith("BLOCKED")){
-        addMsg("assistant","Yeh topic mujhe filter ho raha hai yaar, thoda alag tarike se bata sakte ho? 💜",true);
-      } else {
-        addMsg("assistant","Hmm, koi response nahi aaya — dobara try karo yaar 💜",true);
-      }
-      return;
-    }
-    if(!content){
-      addMsg("assistant","Hmm, koi response nahi aaya — dobara try karo yaar 💜",true);
-      return;
-    }
-
-    addMsg("assistant",content.trim());
-
-    // FIX #3: Only run extractMems if not already running
-    const uc=msgs.filter(m=>m.role==="user").length;
-    if(uc>0&&uc%4===0&&!extracting) extractMems();
-
-  } catch(err){
-    hideTyping();
-    addMsg("assistant","Network issue lag raha hai — internet check karo aur phir try karo 💜",true);
-    console.error("Send error:",err);
-  } finally {
-    busy=false;
-    setStatus(false);
-    document.getElementById("sbtn").className=
-      document.getElementById("ta").value.trim()?"on":"off";
-  }
-}
-
-// ── Extract & save memories ────────────────────────────────────────
-async function extractMems(){
-  if(extracting) return; // FIX #3: hard guard
-  extracting=true;
-  updateMem("learning");
-
-  try{
-    // FIX #4: Use trimmed msgs snapshot for memory too
-    const msgSnapshot=msgs.slice(-MAX_MSGS);
-    const extractSys="Extract facts from conversations as a JSON array of short strings. Return ONLY valid JSON. No markdown, no backticks, no explanation. Example: [\"User name is Rahul\",\"Feels lonely at school\"]";
-    const turnsForExtraction=[...msgSnapshot,{role:"user",content:EXT}];
-
-    const r=await fetch(apiUrl(),{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-goog-api-key":key},
-      body:JSON.stringify(buildGeminiBody(extractSys, turnsForExtraction, {temperature:0.3, maxTokens:400}))
-    });
-
-    if(!r.ok){updateMem();return;}
-    const d=await r.json();
-
-    let rawText;
-    try{
-      rawText=extractGeminiText(d);
-    } catch{
-      updateMem();return;
-    }
-    if(!rawText){updateMem();return;}
-
-    let facts=[];
-    try{
-      const cleaned=rawText.trim().replace(/```json\s*/gi,"").replace(/```\s*/g,"").trim();
-      const match=cleaned.match(/\[[\s\S]*\]/);
-      if(match) facts=JSON.parse(match[0]);
-    } catch(parseErr){
-      console.warn("Memory parse failed:",parseErr);
-      updateMem();
-      return;
-    }
-
-    if(!Array.isArray(facts)||!facts.length){updateMem();return;}
-
-    const merged=[...mems,...facts]
-      .filter(f=>typeof f==="string"&&f.trim())
-      .filter((v,i,a)=>a.findIndex(x=>x.toLowerCase()===v.toLowerCase())===i)
-      .slice(-25);
-
-    mems=merged;
-    ls.s("sfu_mems",JSON.stringify(merged));
-
-    // FIX #5 bonus: improved name regex — handles Hindi names & lowercase
-    if(!uname){
-      for(const f of facts){
-        // Match: "naam X hai", "name is X", "called X", "User X" patterns
-        const m=f.match(/naam\s+([A-Za-z][A-Za-z]+)|name\s+is\s+([A-Za-z][A-Za-z]+)|called\s+([A-Za-z][A-Za-z]+)|User\s+([A-Za-z][A-Za-z]+)/i);
-        if(m){
-          const extracted=m[1]||m[2]||m[3]||m[4];
-          // Avoid generic words
-          const skip=["the","a","an","is","are","was","has","have","been","not","no","user","name"];
-          if(!skip.includes(extracted.toLowerCase())){
-            uname=extracted.charAt(0).toUpperCase()+extracted.slice(1).toLowerCase();
-            ls.s("sfu_uname",uname);
-            break;
-          }
-        }
-      }
-    }
-    updateMem("saved");
-  } catch(err){
-    console.warn("Memory extraction failed:",err);
-    updateMem("err");
-  } finally {
-    extracting=false; // FIX #3: always release lock
-  }
-}
-
-// ── Boot ───────────────────────────────────────────────────────────
-init();
-</script>
-</body>
-</html>
+    b.className="
